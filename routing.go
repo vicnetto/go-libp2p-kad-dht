@@ -88,7 +88,7 @@ func (dht *IpfsDHT) PutValue(ctx context.Context, key string, value []byte, opts
 				ID:   p,
 			})
 
-			err := dht.protoMessenger.PutValue(ctx, p, rec)
+			err := dht.ProtoMessenger.PutValue(ctx, p, rec)
 			if err != nil {
 				logger.Debugf("failed putting value to peer: %s", err)
 			}
@@ -179,7 +179,7 @@ func (dht *IpfsDHT) SearchValue(ctx context.Context, key string, opts ...routing
 				return
 			}
 
-			for _, p := range l.peers {
+			for _, p := range l.Peers {
 				if _, ok := peersWithBest[p]; !ok {
 					updatePeers = append(updatePeers, p)
 				}
@@ -273,7 +273,7 @@ func (dht *IpfsDHT) updatePeerValues(ctx context.Context, key string, val []byte
 			}
 			ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 			defer cancel()
-			err := dht.protoMessenger.PutValue(ctx, p, fixupRec)
+			err := dht.ProtoMessenger.PutValue(ctx, p, fixupRec)
 			if err != nil {
 				logger.Debug("Error correcting DHT entry: ", err)
 			}
@@ -281,9 +281,9 @@ func (dht *IpfsDHT) updatePeerValues(ctx context.Context, key string, val []byte
 	}
 }
 
-func (dht *IpfsDHT) getValues(ctx context.Context, key string, stopQuery chan struct{}) (<-chan recvdVal, <-chan *lookupWithFollowupResult) {
+func (dht *IpfsDHT) getValues(ctx context.Context, key string, stopQuery chan struct{}) (<-chan recvdVal, <-chan *LookupWithFollowupResult) {
 	valCh := make(chan recvdVal, 1)
-	lookupResCh := make(chan *lookupWithFollowupResult, 1)
+	lookupResCh := make(chan *LookupWithFollowupResult, 1)
 
 	logger.Debugw("finding value", "key", internal.LoggableRecordKeyString(key))
 
@@ -308,7 +308,7 @@ func (dht *IpfsDHT) getValues(ctx context.Context, key string, stopQuery chan st
 					ID:   p,
 				})
 
-				rec, peers, err := dht.protoMessenger.GetValue(ctx, p, key)
+				rec, peers, err := dht.ProtoMessenger.GetValue(ctx, p, key)
 				if err != nil {
 					logger.Debugf("error getting closer peers: %s", err)
 					return nil, err
@@ -371,8 +371,8 @@ func (dht *IpfsDHT) getValues(ctx context.Context, key string, stopQuery chan st
 	return valCh, lookupResCh
 }
 
-func (dht *IpfsDHT) refreshRTIfNoShortcut(key kb.ID, lookupRes *lookupWithFollowupResult) {
-	if lookupRes.completed {
+func (dht *IpfsDHT) refreshRTIfNoShortcut(key kb.ID, lookupRes *LookupWithFollowupResult) {
+	if lookupRes.Completed {
 		// refresh the cpl for this key as the query was successful
 		dht.routingTable.ResetCplRefreshedAtForID(key, time.Now())
 	}
@@ -456,7 +456,7 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 		go func(p peer.ID) {
 			defer wg.Done()
 			logger.Debugf("putProvider(%s, %s)", internal.LoggableProviderRecordBytes(keyMH), p)
-			err := dht.protoMessenger.PutProviderAddrs(ctx, p, keyMH, peer.AddrInfo{
+			err := dht.ProtoMessenger.PutProviderAddrs(ctx, p, keyMH, peer.AddrInfo{
 				ID:    dht.self,
 				Addrs: dht.filterAddrs(dht.host.Addrs()),
 			})
@@ -575,7 +575,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 				ID:   p,
 			})
 
-			provs, closest, err := dht.protoMessenger.GetProviders(ctx, p, key)
+			provs, closest, err := dht.ProtoMessenger.GetProviders(ctx, p, key)
 			if err != nil {
 				return nil, err
 			}
@@ -651,7 +651,7 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (pi peer.AddrInfo,
 				ID:   p,
 			})
 
-			peers, err := dht.protoMessenger.GetClosestPeers(ctx, p, id)
+			peers, err := dht.ProtoMessenger.GetClosestPeers(ctx, p, id)
 			if err != nil {
 				logger.Debugf("error getting closer peers: %s", err)
 				return nil, err
@@ -676,12 +676,12 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (pi peer.AddrInfo,
 	}
 
 	dialedPeerDuringQuery := false
-	for i, p := range lookupRes.peers {
+	for i, p := range lookupRes.Peers {
 		if p == id {
 			// Note: we consider PeerUnreachable to be a valid state because the peer may not support the DHT protocol
 			// and therefore the peer would fail the query. The fact that a peer that is returned can be a non-DHT
 			// server peer and is not identified as such is a bug.
-			dialedPeerDuringQuery = (lookupRes.state[i] == qpeerset.PeerQueried || lookupRes.state[i] == qpeerset.PeerUnreachable || lookupRes.state[i] == qpeerset.PeerWaiting)
+			dialedPeerDuringQuery = (lookupRes.State[i] == qpeerset.PeerQueried || lookupRes.State[i] == qpeerset.PeerUnreachable || lookupRes.State[i] == qpeerset.PeerWaiting)
 			break
 		}
 	}

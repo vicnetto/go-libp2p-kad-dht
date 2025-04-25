@@ -614,7 +614,7 @@ func TestProvideAddressFilter(t *testing.T) {
 	pm, err := pb.NewProtocolMessenger(tms)
 	require.NoError(t, err)
 
-	dhts[0].protoMessenger = pm
+	dhts[0].ProtoMessenger = pm
 	dhts[0].addrFilter = func(multiaddrs []ma.Multiaddr) []ma.Multiaddr {
 		return []ma.Multiaddr{testMaddr}
 	}
