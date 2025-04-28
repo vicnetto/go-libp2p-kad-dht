@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -61,6 +62,10 @@ type query struct {
 
 	// stopFn is used to determine if we should stop the WHOLE disjoint query.
 	stopFn stopFn
+
+	// save the order of the peers queried, for understanding which peers are asked firstly
+	step             atomic.Int64
+	queriedPeerOrder map[peer.ID]int
 }
 
 type LookupWithFollowupResult struct {
@@ -151,6 +156,8 @@ processFollowUp:
 		}
 	}
 
+	lookupRes.AllPeersContacted = qps
+
 	return lookupRes, nil
 }
 
@@ -170,16 +177,17 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn
 	}
 
 	q := &query{
-		id:         uuid.New(),
-		key:        target,
-		ctx:        ctx,
-		dht:        dht,
-		queryPeers: qpeerset.NewQueryPeerset(target),
-		seedPeers:  seedPeers,
-		peerTimes:  make(map[peer.ID]time.Duration),
-		terminated: false,
-		queryFn:    queryFn,
-		stopFn:     stopFn,
+		id:               uuid.New(),
+		key:              target,
+		ctx:              ctx,
+		dht:              dht,
+		queryPeers:       qpeerset.NewQueryPeerset(target),
+		queriedPeerOrder: make(map[peer.ID]int),
+		seedPeers:        seedPeers,
+		peerTimes:        make(map[peer.ID]time.Duration),
+		terminated:       false,
+		queryFn:          queryFn,
+		stopFn:           stopFn,
 	}
 
 	// run the query
@@ -190,6 +198,7 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn
 	}
 
 	res := q.constructLookupResult(targetKadID)
+	res.PeersContactedOrder = q.queriedPeerOrder
 	return res, q.queryPeers, nil
 }
 
@@ -346,6 +355,8 @@ func (q *query) spawnQuery(ctx context.Context, cause peer.ID, queryPeer peer.ID
 	)
 	q.queryPeers.SetState(queryPeer, qpeerset.PeerWaiting)
 	q.waitGroup.Add(1)
+	q.step.Add(1)
+	q.queriedPeerOrder[queryPeer] = int(q.step.Load())
 	go q.queryPeer(ctx, ch, queryPeer)
 }
 
