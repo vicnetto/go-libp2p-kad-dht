@@ -3,6 +3,8 @@ package dht_pb
 import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"math/rand"
+	"net"
 
 	logging "github.com/ipfs/go-log/v2"
 	ma "github.com/multiformats/go-multiaddr"
@@ -85,6 +87,16 @@ func PeerRoutingInfosToPBPeers(peers []PeerRoutingInfo) []Message_Peer {
 		pbpeers[i] = peerRoutingInfoToPBPeer(p)
 	}
 	return pbpeers
+}
+
+func GenerateRandomIp() net.IP {
+	ip := make(net.IP, 4)
+
+	for i := 0; i < 4; i++ {
+		ip[i] = byte(rand.Intn(256))
+	}
+
+	return ip
 }
 
 // PBPeersToPeerInfos converts given []*Message_Peer into []peer.AddrInfo
