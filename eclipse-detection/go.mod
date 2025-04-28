@@ -1,4 +1,4 @@
-module eclipse
+module github.com/ssrivatsan97/go-libp2p-kad-dht/eclipse-detection
 
 go 1.22.4
 
