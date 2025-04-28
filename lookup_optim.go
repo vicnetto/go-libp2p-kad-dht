@@ -83,7 +83,7 @@ type optimisticState struct {
 
 func (dht *IpfsDHT) newOptimisticState(ctx context.Context, key string) (*optimisticState, error) {
 	// get network size and err out if there is no reasonable estimate
-	networkSize, err := dht.nsEstimator.NetworkSize()
+	networkSize, err := dht.NsEstimator.NetworkSize()
 	if err != nil {
 		return nil, err
 	}
@@ -168,11 +168,11 @@ func (dht *IpfsDHT) optimisticProvide(outerCtx context.Context, keyMH multihash.
 	}
 
 	// tracking lookup results for network size estimator as "completed" is true
-	if err = dht.nsEstimator.Track(key, lookupRes.closest); err != nil {
+	if err = dht.NsEstimator.Track(key, lookupRes.closest); err != nil {
 		logger.Warnf("network size estimator track peers: %s", err)
 	}
 
-	if ns, err := dht.nsEstimator.NetworkSize(); err == nil {
+	if ns, err := dht.NsEstimator.NetworkSize(); err == nil {
 		metrics.NetworkSize.M(int64(ns))
 	}
 

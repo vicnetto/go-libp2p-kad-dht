@@ -18,6 +18,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
+	detection "github.com/ssrivatsan97/go-libp2p-kad-dht/eclipse-detection"
+	formatlogger "github.com/vicnetto/active-sybil-attack/logger"
+
 	"github.com/libp2p/go-libp2p-kad-dht/internal"
 	dhtcfg "github.com/libp2p/go-libp2p-kad-dht/internal/config"
 	"github.com/libp2p/go-libp2p-kad-dht/metrics"
@@ -42,6 +47,8 @@ import (
 
 const tracer = tracing.Tracer("go-libp2p-kad-dht")
 const dhtName = "IpfsDHT"
+
+var log = formatlogger.InitializeLogger()
 
 var (
 	logger     = logging.Logger("dht")
@@ -72,6 +79,8 @@ const (
 	kbucketTag       = "kbucket"
 	protectedBuckets = 2
 )
+
+const defaultEclipseDetectionK = 20
 
 // IpfsDHT is an implementation of Kademlia with S/Kademlia modifications.
 // It is used to implement the base Routing module.
@@ -151,7 +160,7 @@ type IpfsDHT struct {
 	rtFreezeTimeout time.Duration
 
 	// network size estimator
-	nsEstimator   *netsize.Estimator
+	NsEstimator   *netsize.Estimator
 	enableOptProv bool
 
 	// a bound channel to limit asynchronicity of in-flight ADD_PROVIDER RPCs
@@ -159,6 +168,11 @@ type IpfsDHT struct {
 
 	// configuration variables for tests
 	testAddressUpdateProcessing bool
+
+	// Used for eclipse attack detection
+	Detector            *detection.EclipseDetector
+	enableRegionProvide bool
+	provideRegionSize   int
 
 	// addrFilter is used to filter the addresses we put into the peer store.
 	// Mostly used to filter out localhost and local addresses.
@@ -342,7 +356,7 @@ func makeDHT(h host.Host, cfg dhtcfg.Config) (*IpfsDHT, error) {
 	dht.lookupCheckTimeout = cfg.RoutingTable.RefreshQueryTimeout
 
 	// init network size estimator
-	dht.nsEstimator = netsize.NewEstimator(h.ID(), rt, cfg.BucketSize)
+	dht.NsEstimator = netsize.NewEstimator(h.ID(), rt, cfg.BucketSize)
 
 	if dht.enableOptProv {
 		dht.optProvJobsPool = make(chan struct{}, cfg.OptimisticProvideJobsPoolSize)
@@ -368,6 +382,8 @@ func makeDHT(h host.Host, cfg dhtcfg.Config) (*IpfsDHT, error) {
 	}
 
 	dht.rtFreezeTimeout = rtFreezeTimeout
+
+	dht.addDetector()
 
 	return dht, nil
 }
@@ -904,7 +920,7 @@ func (dht *IpfsDHT) Ping(ctx context.Context, p peer.ID) error {
 // EXPERIMENTAL: We do not provide any guarantees that this method will
 // continue to exist in the codebase. Use it at your own risk.
 func (dht *IpfsDHT) NetworkSize() (int32, error) {
-	return dht.nsEstimator.NetworkSize()
+	return dht.NsEstimator.NetworkSize()
 }
 
 // newContextWithLocalTags returns a new context.Context with the InstanceID and
@@ -936,4 +952,119 @@ func (dht *IpfsDHT) filterAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 		return f(addrs)
 	}
 	return addrs
+}
+
+func (dht *IpfsDHT) addDetector() {
+	dht.Detector = detection.New(defaultEclipseDetectionK)
+}
+
+func (dht *IpfsDHT) GatherNetsizeData(ctx context.Context) error {
+	log.Info.Println("Doing a few queries to initialize the netsize estimator. This may take some time...")
+
+	const numSamples = 10
+	var consecutiveFailedAttempts int
+
+	for cpl := 0; cpl < numSamples; cpl++ {
+		ctxTimeout, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+
+		var randId peer.ID
+		var err error
+		var cidDecode cid.Cid
+		var multiHash multihash.Multihash
+		var closestPeers []peer.ID
+
+		randId, err = dht.routingTable.GenRandPeerID(uint(cpl))
+		if err != nil {
+			goto error
+		}
+
+		cidDecode, err = cid.Decode(randId.String())
+		if err != nil {
+			goto error
+		}
+
+		multiHash = cidDecode.Hash()
+		closestPeers, err = dht.GetClosestPeers(ctxTimeout, string(multiHash))
+		if err != nil {
+			goto error
+		}
+
+		if err = dht.NsEstimator.Track(string(randId), closestPeers); err != nil {
+			logger.Warnf("network size estimator track peers: %s", err)
+		}
+
+		log.Info.Printf("CPL %d updated! (%d%% complete)", cpl, (cpl+1)*10)
+		consecutiveFailedAttempts = 0
+
+	error:
+		if err != nil {
+			if consecutiveFailedAttempts < 3 {
+				log.Error.Printf("  Attempt %d/4 failed: %s", consecutiveFailedAttempts+1, err)
+				consecutiveFailedAttempts++
+				cpl--
+			} else {
+				cancelTimeout()
+				log.Error.Printf("  Attempt %d/4 failed: %s", consecutiveFailedAttempts+1, err)
+				return fmt.Errorf("Failed to gather netsize data, too much attempts")
+			}
+		}
+
+		cancelTimeout()
+	}
+
+	return nil
+}
+
+func (dht *IpfsDHT) GatherNetSizeDataWithoutTimeout(ctx context.Context) error {
+	fmt.Println(time.Now().Format(time.DateTime), "[info] "+
+		"Doing a few queries to initialize the netsize estimator. This may take some time...")
+
+	const numSamples = 10
+	var consecutiveFailedAttempts int
+
+	for cpl := 0; cpl < numSamples; cpl++ {
+		var randId peer.ID
+		var err error
+		var cidDecode cid.Cid
+		var multiHash multihash.Multihash
+		var closestPeers []peer.ID
+
+		randId, err = dht.routingTable.GenRandPeerID(uint(cpl))
+		if err != nil {
+			goto error
+		}
+		ProvideCid = append(ProvideCid, randId.String())
+
+		cidDecode, err = cid.Decode(randId.String())
+		if err != nil {
+			goto error
+		}
+
+		multiHash = cidDecode.Hash()
+		closestPeers, err = dht.GetClosestPeers(ctx, string(multiHash))
+		if err != nil {
+			goto error
+		}
+
+		if err = dht.NsEstimator.Track(string(randId), closestPeers); err != nil {
+			logger.Warnf("network size estimator track peers: %s", err)
+		}
+
+		fmt.Println(time.Now().Format(time.DateTime), "[info]", "CPL", cpl, "updated!")
+		consecutiveFailedAttempts = 0
+
+	error:
+		if err != nil {
+			fmt.Println(err)
+
+			if consecutiveFailedAttempts < 3 {
+				consecutiveFailedAttempts++
+				cpl--
+			} else {
+				return fmt.Errorf("failed to gather netsize data, too much attempts")
+			}
+		}
+	}
+
+	return nil
 }

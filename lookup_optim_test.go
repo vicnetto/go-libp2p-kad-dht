@@ -75,7 +75,7 @@ func TestOptimisticProvide(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	privDHT.nsEstimator = nse
+	privDHT.NsEstimator = nse
 
 	for _, k := range testCaseCids {
 		logger.Debugf("announcing provider for %s", k)
