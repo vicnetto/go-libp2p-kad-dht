@@ -592,7 +592,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 				logger.Debugf("got provider: %s", prov)
 				if psTryAdd(*prov) {
 					SetPRProvider(p.String(), prov.ID.String())
-					fmt.Println(time.Now().Format(time.DateTime), p.String(), "added", prov.ID.String(), "as provider")
+					fmt.Println(time.Now().Format(time.DateTime), "[info]", p.String(), "added", prov.ID.String(), "as provider")
 
 					logger.Debugf("using provider: %s", prov)
 					select {
