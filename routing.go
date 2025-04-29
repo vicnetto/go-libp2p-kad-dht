@@ -469,6 +469,9 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 	if exceededDeadline {
 		return context.DeadlineExceeded
 	}
+
+	ProvideFinished <- ctx.Err()
+
 	return ctx.Err()
 }
 
@@ -548,6 +551,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 			select {
 			case peerOut <- p:
 				// Add tracing event for finding a provider
+				fmt.Println("found local provider", p.ID, "from", dht.self)
 				span.AddEvent("found provider", trace.WithAttributes(
 					attribute.Stringer("peer", p.ID),
 					attribute.Stringer("from", dht.self),
@@ -587,6 +591,9 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 				dht.maybeAddAddrs(prov.ID, prov.Addrs, peerstore.TempAddrTTL)
 				logger.Debugf("got provider: %s", prov)
 				if psTryAdd(*prov) {
+					SetPRProvider(p.String(), prov.ID.String())
+					fmt.Println(time.Now().Format(time.DateTime), p.String(), "added", prov.ID.String(), "as provider")
+
 					logger.Debugf("using provider: %s", prov)
 					select {
 					case peerOut <- *prov:
