@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/libp2p/go-libp2p-kad-dht/amino"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/routing"
@@ -461,6 +463,7 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 				Addrs: dht.filterAddrs(dht.host.Addrs()),
 			})
 			if err != nil {
+				// fmt.Println()
 				logger.Debug(err)
 			}
 		}(p)
@@ -469,6 +472,127 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 	if exceededDeadline {
 		return context.DeadlineExceeded
 	}
+	return ctx.Err()
+}
+
+// SRProvide provides a content using the SR-DHT-Store mitigation. It will firstly search
+// for the k closest nodes to a target content and send records to the nodes contacted within
+// the zone $d_k$. It will then send PRs until reaching k records sent.
+func (dht *IpfsDHT) SRProvide(ctx context.Context, key cid.Cid, brdcst bool) (err error) {
+	ctx, end := tracer.Provide(dhtName, ctx, key, brdcst)
+	defer func() { end(err) }()
+
+	if !dht.enableProviders {
+		return routing.ErrNotSupported
+	} else if !key.Defined() {
+		return fmt.Errorf("invalid cid: undefined")
+	}
+	keyMH := key.Hash()
+	logger.Debugw("srproviding", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
+
+	// add self locally
+	dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
+	if !brdcst {
+		return nil
+	}
+
+	closerCtx := ctx
+	if deadline, ok := ctx.Deadline(); ok {
+		now := time.Now()
+		timeout := deadline.Sub(now)
+
+		if timeout < 0 {
+			// timed out
+			return context.DeadlineExceeded
+		} else if timeout < 10*time.Second {
+			// Reserve 10% for the final put.
+			deadline = deadline.Add(-timeout / 10)
+		} else {
+			// Otherwise, reserve a second (we'll already be
+			// connected so this should be fast).
+			deadline = deadline.Add(-time.Second)
+		}
+		var cancel context.CancelFunc
+		closerCtx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+
+	log.Info.Printf("Performing lookup towards %s and providing if peer is within $d_k$...", key)
+	var exceededDeadline bool
+	peers, providedTo, err := dht.GetClosestPeersAndProvideIfWithinDk(closerCtx, string(keyMH))
+	switch err {
+	case context.DeadlineExceeded:
+		// If the _inner_ deadline has been exceeded but the _outer_
+		// context is still fine, provide the value to the closest peers
+		// we managed to find, even if they're not the _actual_ closest peers.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		exceededDeadline = true
+	case nil:
+	default:
+		return err
+	}
+
+	var provideTo atomic.Int32
+	provideTo.Store(int32(amino.DefaultBucketSize - len(providedTo)))
+
+	log.Info.Printf("Providing %d extra PRs to reach %d...\n", provideTo.Load(), amino.DefaultBucketSize)
+
+	for {
+		wg := sync.WaitGroup{}
+		for i := 0; int32(i) < provideTo.Load(); i++ {
+			// No more peers to provide to
+			if len(peers) == 0 {
+				log.Error.Println("Error: no more peers to provide")
+				provideTo.Store(0)
+				break
+			}
+
+			// Provide to peer and remove from the list
+			peerToProvide := peers[0]
+			peers = append(peers[:0], peers[1:]...)
+
+			provideIndex := amino.DefaultBucketSize - int(provideTo.Load()) + i + 1
+			log.Info.Printf("%d) PutPR(%s, %s)\n", provideIndex, key, peerToProvide)
+
+			wg.Add(1)
+			go func(p peer.ID) {
+				defer wg.Done()
+				// Try firstly to find the peer.
+				if _, err := dht.FindPeer(ctx, p); err != nil {
+					log.Error.Printf("  %d) Error finding peer %s: %s\n", provideIndex, p.String(), err)
+					return
+				}
+
+				// Exchange the PR with the peer if it was found.
+				err := dht.protoMessenger.PutProviderAddrs(ctx, p, keyMH, peer.AddrInfo{
+					ID:    dht.self,
+					Addrs: dht.filterAddrs(dht.host.Addrs()),
+				})
+
+				if err != nil {
+					log.Error.Printf("  %d) Error providing to %s: %s\n", provideIndex, p.String(), err)
+					logger.Debug(err)
+				} else { // Successfuly provided
+					provideTo.Add(-1)
+					log.Info.Printf("  %d) Successfully provided to %s (remaining: %d)\n", provideIndex, p.String(), provideTo.Load())
+				}
+			}(peerToProvide)
+		}
+		wg.Wait()
+		if exceededDeadline {
+			return context.DeadlineExceeded
+		}
+
+		// If we send at least k providers we should stop
+		if provideTo.Load() == 0 {
+			break
+		}
+	}
+
+	log.Info.Printf("Content %s was successfully provided using the SR-DHT-Store!", key)
+
 	return ctx.Err()
 }
 
