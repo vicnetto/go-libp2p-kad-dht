@@ -1,12 +1,13 @@
 module github.com/libp2p/go-libp2p-kad-dht
 
-go 1.22.0
+go 1.23.2
 
-toolchain go1.22.1
+toolchain go1.24.2
 
 retract v0.24.3 // this includes a breaking change and should have been released as v0.25.0
 
 require (
+	github.com/Xeway/bigmath v1.0.9
 	github.com/gogo/protobuf v1.3.2
 	github.com/google/gopacket v1.1.19
 	github.com/google/uuid v1.6.0
@@ -32,6 +33,7 @@ require (
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/multiformats/go-multistream v0.6.0
 	github.com/stretchr/testify v1.10.0
+	github.com/vicnetto/active-sybil-attack/logger v0.0.0-20250120102219-254a63da6821
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1
 	go.opencensus.io v0.24.0
 	go.opentelemetry.io/otel v1.31.0
