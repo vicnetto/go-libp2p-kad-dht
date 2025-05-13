@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -20,6 +21,13 @@ import (
 	"github.com/libp2p/go-libp2p-kad-dht/qpeerset"
 	kb "github.com/libp2p/go-libp2p-kbucket"
 )
+
+// For debugging purposes:
+// NodesQueriedCount counts the number of nodes asked for the CID
+var NodesQueriedCount atomic.Int64
+
+// TargetCid is the goal CID
+var TargetCid string
 
 // ErrNoPeersQueried is returned when we failed to connect to any peers.
 var ErrNoPeersQueried = errors.New("failed to query any peers")
@@ -64,9 +72,10 @@ type query struct {
 }
 
 type lookupWithFollowupResult struct {
-	peers   []peer.ID            // the top K not unreachable peers at the end of the query
-	state   []qpeerset.PeerState // the peer states at the end of the query of the peers slice (not closest)
-	closest []peer.ID            // the top K peers at the end of the query
+	peers         []peer.ID              // the top K not unreachable peers at the end of the query
+	state         []qpeerset.PeerState   // the peer states at the end of the query of the peers slice (not closest)
+	closest       []peer.ID              // the top K peers at the end of the query
+	allQueryPeers *qpeerset.QueryPeerset // all peers in the query queue
 
 	// indicates that neither the lookup nor the followup has been prematurely terminated by an external condition such
 	// as context cancellation or the stop function being called.
@@ -148,6 +157,9 @@ processFollowUp:
 			<-doneCh
 		}
 	}
+
+	// Save all query queue peers and states
+	lookupRes.allQueryPeers = qps
 
 	return lookupRes, nil
 }
@@ -421,6 +433,11 @@ func (q *query) queryPeer(ctx context.Context, ch chan<- *queryUpdate, p peer.ID
 	defer span.End()
 
 	dialCtx, queryCtx := ctx, ctx
+
+	// Count the number of peers queried for debugging proposes.
+	if peer.ID(q.key).String() == TargetCid {
+		NodesQueriedCount.Add(1)
+	}
 
 	// dial the peer
 	if err := q.dht.dialPeer(dialCtx, p); err != nil {
