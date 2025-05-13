@@ -3,6 +3,7 @@ package dht
 import (
 	"context"
 	"fmt"
+	"github.com/libp2p/go-libp2p-kad-dht/sr"
 	"math"
 	"math/rand"
 	"sync"
@@ -163,6 +164,10 @@ type IpfsDHT struct {
 	// addrFilter is used to filter the addresses we put into the peer store.
 	// Mostly used to filter out localhost and local addresses.
 	addrFilter func([]ma.Multiaddr) []ma.Multiaddr
+
+	// Average distance to the $k$ node
+	KDistance      *sr.WelfordAverage
+	PeersToContact int // Amount of peers to estimate the distance $d_k$ (kDistance)
 }
 
 // Assert that IPFS assumptions about interfaces aren't broken. These aren't a
@@ -251,6 +256,13 @@ func New(ctx context.Context, h host.Host, options ...Option) (*IpfsDHT, error) 
 	if !dht.disableFixLowPeers {
 		dht.runFixLowPeersLoop()
 	}
+
+	dht.PeersToContact = cfg.PeersToEstimateKDistance
+	// go dht.GetFarthestKAverageByQuery(context.Background(), dht.PeersToContact)
+	// dht.KDistance, err = dht.GetFarthestKAverageByQuery(context.Background(), dht.PeersToContact)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	return dht, nil
 }
@@ -661,6 +673,12 @@ func (dht *IpfsDHT) peerFound(p peer.ID) {
 	// already full, don't try to add the new peer.ID
 	if !dht.routingTable.UsefulNewPeer(p) {
 		return
+	}
+
+	// Obtain the k distance ($d_k$) when at least peers to contact are available
+	if dht.KDistance == nil && len(dht.RoutingTable().ListPeers()) > dht.PeersToContact {
+		kDistance, _ := dht.GetFarthestKAverageByQuery(context.Background(), dht.PeersToContact)
+		dht.KDistance = &kDistance
 	}
 
 	// verify whether the remote peer advertises the right dht protocol

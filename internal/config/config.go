@@ -70,6 +70,8 @@ type Config struct {
 
 	EnableOptimisticProvide       bool
 	OptimisticProvideJobsPoolSize int
+
+	PeersToEstimateKDistance int
 }
 
 func EmptyQueryFilter(_ interface{}, ai peer.AddrInfo) bool { return true }
@@ -133,6 +135,9 @@ var Defaults = func(o *Config) error {
 
 	// MAGIC: It makes sense to set it to a multiple of OptProvReturnRatio * BucketSize. We chose a multiple of 4.
 	o.OptimisticProvideJobsPoolSize = 60
+
+	// According to our paper, this limit should be 10.
+	o.PeersToEstimateKDistance = 10
 
 	return nil
 }
