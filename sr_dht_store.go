@@ -39,40 +39,8 @@ func removePeersFromList(base []peer.ID, remove []peer.ID) []peer.ID {
 	return base
 }
 
-func (dht *IpfsDHT) QueryPeerForKClosestFromItself(ctx context.Context, pid peer.ID) ([]peer.ID, error) {
-	// After asking directly from the peer, we need to know its addresses. As the peer is already in the RT, probably
-	// we already know this information, but its probably better to be sure.
-	if _, err := dht.FindPeer(ctx, pid); err != nil {
-		return nil, err
-	}
-
-	// Create new routing table to allow generation of CIDs within an CPL.
-	pidMultiHash, _ := mh.FromB58String(pid.String())
-	rt, err := kbucket.NewRoutingTable(20, kbucket.ConvertKey(string(pidMultiHash)), time.Minute, dht.peerstore, time.Minute, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	randomId, err := rt.GenRandPeerID(15)
-	// log.Info.Println("Random PID)", randomId)
-
-	// Ask directly the peer for the closest nodes he knows for the random generated peer in the closest CPL as possible.
-	closest, err := dht.protoMessenger.GetClosestPeers(ctx, pid, randomId)
-	if err != nil {
-		return nil, err
-	}
-
-	// Remove garbage addresses, returning only the peer.ID
-	var closestPeerId []peer.ID
-	for _, peerInfo := range closest {
-		closestPeerId = append(closestPeerId, peerInfo.ID)
-	}
-
-	return closestPeerId, nil
-}
-
 // GetFarthestDistance returns the CPL and distance of the farthest k node of the closest list.
-func (dht *IpfsDHT) GetFarthestDistance(target string, closest []peer.ID, print bool) *big.Int {
+func GetFarthestDistance(target string, closest []peer.ID, print bool) *big.Int {
 	targetCIDByte, _ := mh.FromB58String(target)
 	targetCIDKey := kspace.XORKeySpace.Key(targetCIDByte)
 
@@ -140,6 +108,38 @@ func ToSciNotation(x *big.Int) string {
 	}
 
 	return fmt.Sprintf("%s%.3fe%d", sign, floatValue, int(exponent))
+}
+
+func (dht *IpfsDHT) QueryPeerForKClosestFromItself(ctx context.Context, pid peer.ID) ([]peer.ID, error) {
+	// After asking directly from the peer, we need to know its addresses. As the peer is already in the RT, probably
+	// we already know this information, but its probably better to be sure.
+	if _, err := dht.FindPeer(ctx, pid); err != nil {
+		return nil, err
+	}
+
+	// Create new routing table to allow generation of CIDs within an CPL.
+	pidMultiHash, _ := mh.FromB58String(pid.String())
+	rt, err := kbucket.NewRoutingTable(20, kbucket.ConvertKey(string(pidMultiHash)), time.Minute, dht.peerstore, time.Minute, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	randomId, err := rt.GenRandPeerID(15)
+	// log.Info.Println("Random PID)", randomId)
+
+	// Ask directly the peer for the closest nodes he knows for the random generated peer in the closest CPL as possible.
+	closest, err := dht.protoMessenger.GetClosestPeers(ctx, pid, randomId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Remove garbage addresses, returning only the peer.ID
+	var closestPeerId []peer.ID
+	for _, peerInfo := range closest {
+		closestPeerId = append(closestPeerId, peerInfo.ID)
+	}
+
+	return closestPeerId, nil
 }
 
 func (dht *IpfsDHT) GetValidPeerToQuery(ctx context.Context, alreadyQueriedPeers []peer.ID) peer.ID {
@@ -271,7 +271,7 @@ func (dht *IpfsDHT) GetFarthestKByQuery(ctx context.Context, peer peer.ID) (*big
 		return big.NewInt(0), fmt.Errorf("error while querying the peer: %s", err.Error())
 	}
 
-	maxDistance := dht.GetFarthestDistance(peer.String(), queryClosest, false)
+	maxDistance := GetFarthestDistance(peer.String(), queryClosest, false)
 
 	cancelTimeout()
 	return maxDistance, nil
@@ -310,6 +310,6 @@ func (dht *IpfsDHT) GetFarthestKByLookup(ctx context.Context) (*big.Int, error) 
 		break
 	}
 
-	maxDistance := dht.GetFarthestDistance(cid.String(), peers, false)
+	maxDistance := GetFarthestDistance(cid.String(), peers, false)
 	return maxDistance, nil
 }
