@@ -71,8 +71,8 @@ func (dht *IpfsDHT) QueryPeerForKClosestFromItself(ctx context.Context, pid peer
 	return closestPeerId, nil
 }
 
-// getFarthestDistance returns the CPL and distance of the farthest k node of the closest list.
-func (dht *IpfsDHT) getFarthestDistance(target string, closest []peer.ID, print bool) *big.Int {
+// GetFarthestDistance returns the CPL and distance of the farthest k node of the closest list.
+func (dht *IpfsDHT) GetFarthestDistance(target string, closest []peer.ID, print bool) *big.Int {
 	targetCIDByte, _ := mh.FromB58String(target)
 	targetCIDKey := kspace.XORKeySpace.Key(targetCIDByte)
 
@@ -142,7 +142,7 @@ func ToSciNotation(x *big.Int) string {
 	return fmt.Sprintf("%s%.3fe%d", sign, floatValue, int(exponent))
 }
 
-func (dht *IpfsDHT) getValidPeerToQuery(ctx context.Context, alreadyQueriedPeers []peer.ID) peer.ID {
+func (dht *IpfsDHT) GetValidPeerToQuery(ctx context.Context, alreadyQueriedPeers []peer.ID) peer.ID {
 	var nextPeerToQuery peer.ID
 
 	for {
@@ -228,7 +228,7 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 		case Query:
 			// Case contrary, ask a random peer directly.
 			log.Info.Printf("%d) Querying random peer for their closest peers...", peersContacted+1)
-			currentPeer := dht.getValidPeerToQuery(ctx, *alreadyQueriedPeers)
+			currentPeer := dht.GetValidPeerToQuery(ctx, *alreadyQueriedPeers)
 			*alreadyQueriedPeers = append(*alreadyQueriedPeers, currentPeer)
 			maxDistance, err = dht.GetFarthestKByQuery(ctx, currentPeer)
 			if err != nil {
@@ -271,7 +271,7 @@ func (dht *IpfsDHT) GetFarthestKByQuery(ctx context.Context, peer peer.ID) (*big
 		return big.NewInt(0), fmt.Errorf("error while querying the peer: %s", err.Error())
 	}
 
-	maxDistance := dht.getFarthestDistance(peer.String(), queryClosest, false)
+	maxDistance := dht.GetFarthestDistance(peer.String(), queryClosest, false)
 
 	cancelTimeout()
 	return maxDistance, nil
@@ -310,6 +310,6 @@ func (dht *IpfsDHT) GetFarthestKByLookup(ctx context.Context) (*big.Int, error) 
 		break
 	}
 
-	maxDistance := dht.getFarthestDistance(cid.String(), peers, false)
+	maxDistance := dht.GetFarthestDistance(cid.String(), peers, false)
 	return maxDistance, nil
 }
