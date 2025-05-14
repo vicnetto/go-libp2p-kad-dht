@@ -4,7 +4,7 @@ go 1.24.3
 
 // Branch: sr-dht-store
 // replace github.com/libp2p/go-libp2p-kad-dht => github.com/vicnetto/go-libp2p-kad-dht sr-dht-store
-replace github.com/libp2p/go-libp2p-kad-dht => github.com/vicnetto/go-libp2p-kad-dht v0.28.3-0.20250514155449-6f9774418237
+replace github.com/libp2p/go-libp2p-kad-dht => github.com/vicnetto/go-libp2p-kad-dht v0.28.3-0.20250514163720-612bd6b45ff1
 
 require (
 	github.com/ipfs/go-cid v0.4.1
@@ -13,9 +13,9 @@ require (
 	github.com/libp2p/go-libp2p-kad-dht v0.28.2
 	github.com/libp2p/go-libp2p-kbucket v0.6.4
 	github.com/multiformats/go-multihash v0.2.3
-	github.com/vicnetto/active-sybil-attack/logger v0.0.0-20250514150718-741de863fcd5
-	github.com/vicnetto/active-sybil-attack/node/peer v0.0.0-20250514150718-741de863fcd5
-	github.com/vicnetto/active-sybil-attack/utils/k-closest-to-file v0.0.0-20250514150718-741de863fcd5
+	github.com/vicnetto/active-sybil-attack/logger v0.0.0-20250514165646-758508fd58a4
+	github.com/vicnetto/active-sybil-attack/node/peer v0.0.0-20250514165646-758508fd58a4
+	github.com/vicnetto/active-sybil-attack/utils/k-closest-to-file/interact v0.0.0-20250514183903-e9513d33f35d
 )
 
 require (
