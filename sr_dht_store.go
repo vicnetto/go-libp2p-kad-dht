@@ -20,6 +20,8 @@ import (
 
 const KeySpace = 255
 
+var Debug = false
+
 type EstimationMethod int
 
 const (
@@ -206,11 +208,15 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 	// minCplAverage := float64(0)
 
 	if initialDistance != nil {
-		// log.Info.Println("Starting average with previous value calculated:", ToSciNotation((*initialDistance).GetAverage(sr.MeanStdDev)))
+		if Debug {
+			log.Info.Println("Starting average with previous value calculated:", ToSciNotation((*initialDistance).GetAverage(sr.MeanStdDev)))
+		}
 		maxDistanceResponseStd = sr.NewWelfordMovingAverageFromMean(*initialDistance)
 	}
 
-	// log.Info.Printf("Obtaining minCpl and maxDistance by contacting %d peers...", nodesToContact)
+	if Debug {
+		log.Info.Printf("Obtaining minCpl and maxDistance by contacting %d peers...", nodesToContact)
+	}
 
 	for peersContacted := 0; peersContacted < nodesToContact; peersContacted++ {
 		var maxDistance *big.Int
@@ -218,7 +224,10 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 
 		switch em {
 		case Lookup:
-			// log.Info.Printf("%d) Getting random DHT lookup from the DB...", peersContacted+1)
+			if Debug {
+				log.Info.Printf("%d) Getting random DHT lookup from the DB...", peersContacted+1)
+			}
+
 			maxDistance, err = dht.GetFarthestKByLookup(ctx)
 			if err != nil {
 				log.Info.Println("Error during lookup for the k distance:", err)
@@ -227,7 +236,11 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 			}
 		case Query:
 			// Case contrary, ask a random peer directly.
-			// log.Info.Printf("%d) Querying random peer for their closest peers...", peersContacted+1)
+
+			if Debug {
+				log.Info.Printf("%d) Querying random peer for their closest peers...", peersContacted+1)
+			}
+
 			currentPeer := dht.GetValidPeerToQuery(ctx, *alreadyQueriedPeers)
 			*alreadyQueriedPeers = append(*alreadyQueriedPeers, currentPeer)
 			maxDistance, err = dht.GetFarthestKByQuery(ctx, currentPeer)
@@ -240,19 +253,21 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 
 		maxDistanceResponseStd.Add(maxDistance)
 
-		// log.Info.Printf("  Max Distance: %s (%s)", ToSciNotation(maxDistance), maxDistance)
-		// log.Info.Printf("  Average:")
-		// log.Info.Printf("    Min CPL: %d", maxDistanceResponseStd.GetAverage(sr.CPL))
-		// log.Info.Printf("    Mean, STD, M + STD: %s, %s, %s",
-		// 	ToSciNotation(maxDistanceResponseStd.GetAverage(sr.Mean)),
-		// 	ToSciNotation(maxDistanceResponseStd.GetStdDevAsInt(sr.Mean)),
-		// 	ToSciNotation(maxDistanceResponseStd.GetAverage(sr.MeanStdDev)))
-		// log.Info.Printf("    Weighted Mean, STD, WM + STD : %s, %s, %s",
-		// 	ToSciNotation(maxDistanceResponseStd.GetAverage(sr.WeightedMean)),
-		// 	ToSciNotation(maxDistanceResponseStd.GetStdDevAsInt(sr.WeightedMean)),
-		// 	ToSciNotation(maxDistanceResponseStd.GetAverage(sr.WeightedMeanStdDev)))
-		// log.Info.Printf("    Error Squared : %s",
-		// 	ToSciNotation(maxDistanceResponseStd.GetErrorSquaredAverage()))
+		if Debug {
+			log.Info.Printf("  Max Distance: %s (%s)", ToSciNotation(maxDistance), maxDistance)
+			log.Info.Printf("  Average:")
+			log.Info.Printf("    Min CPL: %d", maxDistanceResponseStd.GetAverage(sr.CPL))
+			log.Info.Printf("    Mean, STD, M + STD: %s, %s, %s",
+				ToSciNotation(maxDistanceResponseStd.GetAverage(sr.Mean)),
+				ToSciNotation(maxDistanceResponseStd.GetStdDevAsInt(sr.Mean)),
+				ToSciNotation(maxDistanceResponseStd.GetAverage(sr.MeanStdDev)))
+			log.Info.Printf("    Weighted Mean, STD, WM + STD : %s, %s, %s",
+				ToSciNotation(maxDistanceResponseStd.GetAverage(sr.WeightedMean)),
+				ToSciNotation(maxDistanceResponseStd.GetStdDevAsInt(sr.WeightedMean)),
+				ToSciNotation(maxDistanceResponseStd.GetAverage(sr.WeightedMeanStdDev)))
+			log.Info.Printf("    Error Squared : %s",
+				ToSciNotation(maxDistanceResponseStd.GetErrorSquaredAverage()))
+		}
 	}
 
 	return *maxDistanceResponseStd, nil
