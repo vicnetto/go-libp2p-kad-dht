@@ -20,7 +20,7 @@ import (
 
 const KeySpace = 255
 
-var Debug = false
+var DebugSRDHTStore = false
 
 type EstimationMethod int
 
@@ -208,13 +208,13 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 	// minCplAverage := float64(0)
 
 	if initialDistance != nil {
-		if Debug {
+		if DebugSRDHTStore {
 			log.Info.Println("Starting average with previous value calculated:", ToSciNotation((*initialDistance).GetAverage(sr.MeanStdDev)))
 		}
 		maxDistanceResponseStd = sr.NewWelfordMovingAverageFromMean(*initialDistance)
 	}
 
-	if Debug {
+	if DebugSRDHTStore {
 		log.Info.Printf("Obtaining minCpl and maxDistance by contacting %d peers...", nodesToContact)
 	}
 
@@ -224,8 +224,8 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 
 		switch em {
 		case Lookup:
-			if Debug {
-				log.Info.Printf("%d) Getting random DHT lookup from the DB...", peersContacted+1)
+			if DebugSRDHTStore {
+				log.Info.Printf("%d) Getting closest nodes to random content with a lookup...", peersContacted+1)
 			}
 
 			maxDistance, err = dht.GetFarthestKByLookup(ctx)
@@ -237,7 +237,7 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 		case Query:
 			// Case contrary, ask a random peer directly.
 
-			if Debug {
+			if DebugSRDHTStore {
 				log.Info.Printf("%d) Querying random peer for their closest peers...", peersContacted+1)
 			}
 
@@ -253,7 +253,7 @@ func (dht *IpfsDHT) GetFarthestKAverage(ctx context.Context, nodesToContact int,
 
 		maxDistanceResponseStd.Add(maxDistance)
 
-		if Debug {
+		if DebugSRDHTStore {
 			log.Info.Printf("  Max Distance: %s (%s)", ToSciNotation(maxDistance), maxDistance)
 			log.Info.Printf("  Average:")
 			log.Info.Printf("    Min CPL: %d", maxDistanceResponseStd.GetAverage(sr.CPL))
@@ -310,7 +310,9 @@ func (dht *IpfsDHT) GetFarthestKByLookup(ctx context.Context) (*big.Int, error) 
 			continue
 		}
 
-		// log.Info.Printf("Getting closest peers to %s...", cid.String())
+		if DebugSRDHTStore {
+			log.Info.Printf("Getting closest peers to %s...", cid.String())
+		}
 		timeoutCtx, cancelTimeoutCtx := context.WithTimeout(ctx, 30*time.Second)
 
 		// Get the closest peers to verify the CPL of each one
