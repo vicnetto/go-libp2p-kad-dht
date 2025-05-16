@@ -163,6 +163,9 @@ type IpfsDHT struct {
 	// addrFilter is used to filter the addresses we put into the peer store.
 	// Mostly used to filter out localhost and local addresses.
 	addrFilter func([]ma.Multiaddr) []ma.Multiaddr
+
+	// change limits for receiving provider records
+	MaxPRPerPeer int
 }
 
 // Assert that IPFS assumptions about interfaces aren't broken. These aren't a
@@ -251,6 +254,9 @@ func New(ctx context.Context, h host.Host, options ...Option) (*IpfsDHT, error) 
 	if !dht.disableFixLowPeers {
 		dht.runFixLowPeersLoop()
 	}
+
+	// Set the default as 10
+	dht.MaxPRPerPeer = 10
 
 	return dht, nil
 }

@@ -582,14 +582,17 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 
 			logger.Debugf("%d provider entries", len(provs))
 
+			prReceived := 0
 			// Add unique providers from request, up to 'count'
 			for _, prov := range provs {
 				dht.maybeAddAddrs(prov.ID, prov.Addrs, peerstore.TempAddrTTL)
 				logger.Debugf("got provider: %s", prov)
-				if psTryAdd(*prov) {
+				if prReceived < dht.MaxPRPerPeer && psTryAdd(*prov) {
 					logger.Debugf("using provider: %s", prov)
 					select {
 					case peerOut <- *prov:
+						prReceived++
+						fmt.Println(time.Now().Format(time.RFC3339), p.String(), "added", prov.ID.String(), "as provider")
 						span.AddEvent("found provider", trace.WithAttributes(
 							attribute.Stringer("peer", prov.ID),
 							attribute.Stringer("from", p),
@@ -599,6 +602,9 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 						logger.Debug("context timed out sending more providers")
 						return nil, ctx.Err()
 					}
+				}
+				if prReceived >= dht.MaxPRPerPeer {
+					fmt.Println("Limit of PR for this peer. Continuing...")
 				}
 				if !findAll && psSize() >= count {
 					logger.Debugf("got enough providers (%d/%d)", psSize(), count)
