@@ -98,7 +98,7 @@ type IpfsDHT struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	protoMessenger *pb.ProtocolMessenger
+	ProtoMessenger *pb.ProtocolMessenger
 	msgSender      pb.MessageSenderWithDisconnect
 
 	stripedPutLocks [256]sync.Mutex
@@ -206,7 +206,7 @@ func New(ctx context.Context, h host.Host, options ...Option) (*IpfsDHT, error) 
 
 	dht.Validator = cfg.Validator
 	dht.msgSender = cfg.MsgSenderBuilder(h, dht.protocols)
-	dht.protoMessenger, err = pb.NewProtocolMessenger(dht.msgSender)
+	dht.ProtoMessenger, err = pb.NewProtocolMessenger(dht.msgSender)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +376,7 @@ func makeDHT(h host.Host, cfg dhtcfg.Config) (*IpfsDHT, error) {
 // answer it correctly
 func (dht *IpfsDHT) lookupCheck(ctx context.Context, p peer.ID) error {
 	// lookup request to p requesting for its own peer.ID
-	peerids, err := dht.protoMessenger.GetClosestPeers(ctx, p, p)
+	peerids, err := dht.ProtoMessenger.GetClosestPeers(ctx, p, p)
 	// p is expected to return at least 1 peer id, unless our routing table has
 	// less than bucketSize peers, in which case we aren't picky about who we
 	// add to the routing table.
@@ -897,7 +897,7 @@ func (dht *IpfsDHT) Host() host.Host {
 func (dht *IpfsDHT) Ping(ctx context.Context, p peer.ID) error {
 	ctx, span := internal.StartSpan(ctx, "IpfsDHT.Ping", trace.WithAttributes(attribute.Stringer("PeerID", p)))
 	defer span.End()
-	return dht.protoMessenger.Ping(ctx, p)
+	return dht.ProtoMessenger.Ping(ctx, p)
 }
 
 // NetworkSize returns the most recent estimation of the DHT network size.

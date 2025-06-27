@@ -107,7 +107,7 @@ func (dht *IpfsDHT) getPublicKeyFromNode(ctx context.Context, p peer.ID) (ci.Pub
 
 	// Get the key from the node itself
 	pkkey := routing.KeyForPublicKey(p)
-	record, _, err := dht.protoMessenger.GetValue(ctx, p, pkkey)
+	record, _, err := dht.ProtoMessenger.GetValue(ctx, p, pkkey)
 	if err != nil {
 		return nil, err
 	}

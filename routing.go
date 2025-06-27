@@ -88,7 +88,7 @@ func (dht *IpfsDHT) PutValue(ctx context.Context, key string, value []byte, opts
 				ID:   p,
 			})
 
-			err := dht.protoMessenger.PutValue(ctx, p, rec)
+			err := dht.ProtoMessenger.PutValue(ctx, p, rec)
 			if err != nil {
 				logger.Debugf("failed putting value to peer: %s", err)
 			}
@@ -273,7 +273,7 @@ func (dht *IpfsDHT) updatePeerValues(ctx context.Context, key string, val []byte
 			}
 			ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 			defer cancel()
-			err := dht.protoMessenger.PutValue(ctx, p, fixupRec)
+			err := dht.ProtoMessenger.PutValue(ctx, p, fixupRec)
 			if err != nil {
 				logger.Debug("Error correcting DHT entry: ", err)
 			}
@@ -308,7 +308,7 @@ func (dht *IpfsDHT) getValues(ctx context.Context, key string, stopQuery chan st
 					ID:   p,
 				})
 
-				rec, peers, err := dht.protoMessenger.GetValue(ctx, p, key)
+				rec, peers, err := dht.ProtoMessenger.GetValue(ctx, p, key)
 				if err != nil {
 					logger.Debugf("error getting closer peers: %s", err)
 					return nil, err
@@ -456,7 +456,7 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 		go func(p peer.ID) {
 			defer wg.Done()
 			logger.Debugf("putProvider(%s, %s)", internal.LoggableProviderRecordBytes(keyMH), p)
-			err := dht.protoMessenger.PutProviderAddrs(ctx, p, keyMH, peer.AddrInfo{
+			err := dht.ProtoMessenger.PutProviderAddrs(ctx, p, keyMH, peer.AddrInfo{
 				ID:    dht.self,
 				Addrs: dht.filterAddrs(dht.host.Addrs()),
 			})
@@ -575,7 +575,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 				ID:   p,
 			})
 
-			provs, closest, err := dht.protoMessenger.GetProviders(ctx, p, key)
+			provs, closest, err := dht.ProtoMessenger.GetProviders(ctx, p, key)
 			if err != nil {
 				return nil, err
 			}
@@ -651,7 +651,7 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (pi peer.AddrInfo,
 				ID:   p,
 			})
 
-			peers, err := dht.protoMessenger.GetClosestPeers(ctx, p, id)
+			peers, err := dht.ProtoMessenger.GetClosestPeers(ctx, p, id)
 			if err != nil {
 				logger.Debugf("error getting closer peers: %s", err)
 				return nil, err
