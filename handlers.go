@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	gocid "github.com/ipfs/go-cid"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -18,6 +19,9 @@ import (
 	recpb "github.com/libp2p/go-libp2p-record/pb"
 	"github.com/multiformats/go-base32"
 )
+
+var OtherNodes []peer.AddrInfo
+var TargetCID gocid.Cid
 
 // dhthandler specifies the signature of functions that handle DHT messages.
 type dhtHandler func(context.Context, peer.ID, *pb.Message) (*pb.Message, error)
@@ -328,12 +332,18 @@ func (dht *IpfsDHT) handleGetProviders(ctx context.Context, p peer.ID, pmes *pb.
 
 	resp.ProviderPeers = pb.PeerInfosToPBPeers(dht.host.Network(), filtered)
 
-	// Also send closer peers.
-	closer := dht.betterPeersToQuery(pmes, p, dht.bucketSize)
-	if closer != nil {
-		// TODO: pstore.PeerInfos should move to core (=> peerstore.AddrInfos).
-		infos := pstore.PeerInfos(dht.peerstore, closer)
-		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), infos)
+	cid, _ := gocid.Cast(pmes.GetKey())
+	// Send other nodes as closer peers for consistent $k$ closest.
+	if cid == TargetCID && len(OtherNodes) > 0 {
+		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), OtherNodes)
+	} else {
+		// Send closer peers in a normal scenario
+		closer := dht.betterPeersToQuery(pmes, p, dht.bucketSize)
+		if closer != nil {
+			// TODO: pstore.PeerInfos should move to core (=> peerstore.AddrInfos).
+			infos := pstore.PeerInfos(dht.peerstore, closer)
+			resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), infos)
+		}
 	}
 
 	return resp, nil
