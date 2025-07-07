@@ -302,7 +302,13 @@ func (dht *IpfsDHT) handleFindPeer(ctx context.Context, from peer.ID, pmes *pb.M
 		}
 	}
 
-	resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), withAddresses)
+	cid, _ := gocid.Cast(pmes.GetKey())
+	if cid == TargetCID && len(OtherNodes) != 0 {
+		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), OtherNodes)
+	} else {
+		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), withAddresses)
+	}
+
 	return resp, nil
 }
 
