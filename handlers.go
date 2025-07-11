@@ -304,6 +304,12 @@ func (dht *IpfsDHT) handleFindPeer(ctx context.Context, from peer.ID, pmes *pb.M
 
 	cid, _ := gocid.Cast(pmes.GetKey())
 	if cid == TargetCID && len(OtherNodes) != 0 {
+		fmt.Printf("[%s] ", time.Now().Format(time.RFC3339))
+		fmt.Println("Sending other nodes to", from.String(), ":")
+		for i, node := range OtherNodes {
+			fmt.Printf("  %d) %s\n", i, node.String())
+		}
+
 		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), OtherNodes)
 	} else {
 		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), withAddresses)
@@ -341,6 +347,12 @@ func (dht *IpfsDHT) handleGetProviders(ctx context.Context, p peer.ID, pmes *pb.
 	cid, _ := gocid.Cast(pmes.GetKey())
 	// Send other nodes as closer peers for consistent $k$ closest.
 	if cid == TargetCID && len(OtherNodes) > 0 {
+		fmt.Printf("[%s] ", time.Now().Format(time.RFC3339))
+		fmt.Println("Sending other nodes to", p.String(), ":")
+		for i, node := range OtherNodes {
+			fmt.Printf("  %d) %s\n", i, node.String())
+		}
+
 		resp.CloserPeers = pb.PeerInfosToPBPeers(dht.host.Network(), OtherNodes)
 	} else {
 		// Send closer peers in a normal scenario
