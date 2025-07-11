@@ -32,7 +32,7 @@ func peerRoutingInfoToPBPeer(p PeerRoutingInfo) Message_Peer {
 	for i, maddr := range p.Addrs {
 		pbp.Addrs[i] = maddr.Bytes() // Bytes, not String. Compressed.
 	}
-	pbp.Id = byteString(p.ID)
+	pbp.Id = ByteString(p.ID)
 	pbp.Connection = ConnectionType(p.Connectedness)
 	return pbp
 }
@@ -44,7 +44,7 @@ func peerInfoToPBPeer(p peer.AddrInfo) Message_Peer {
 	for i, maddr := range p.Addrs {
 		pbp.Addrs[i] = maddr.Bytes() // Bytes, not String. Compressed.
 	}
-	pbp.Id = byteString(p.ID)
+	pbp.Id = ByteString(p.ID)
 	return pbp
 }
 

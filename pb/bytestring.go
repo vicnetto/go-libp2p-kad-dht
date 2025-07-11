@@ -4,39 +4,39 @@ import (
 	"encoding/json"
 )
 
-type byteString string
+type ByteString string
 
-func (b byteString) Marshal() ([]byte, error) {
+func (b ByteString) Marshal() ([]byte, error) {
 	return []byte(b), nil
 }
 
-func (b *byteString) MarshalTo(data []byte) (int, error) {
+func (b *ByteString) MarshalTo(data []byte) (int, error) {
 	return copy(data, *b), nil
 }
 
-func (b *byteString) Unmarshal(data []byte) error {
-	*b = byteString(data)
+func (b *ByteString) Unmarshal(data []byte) error {
+	*b = ByteString(data)
 	return nil
 }
 
-func (b *byteString) Size() int {
+func (b *ByteString) Size() int {
 	return len(*b)
 }
 
-func (b byteString) MarshalJSON() ([]byte, error) {
+func (b ByteString) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]byte(b))
 }
 
-func (b *byteString) UnmarshalJSON(data []byte) error {
+func (b *ByteString) UnmarshalJSON(data []byte) error {
 	var buf []byte
 	err := json.Unmarshal(data, &buf)
 	if err != nil {
 		return err
 	}
-	*b = byteString(buf)
+	*b = ByteString(buf)
 	return nil
 }
 
-func (b byteString) Equal(other byteString) bool {
+func (b ByteString) Equal(other ByteString) bool {
 	return b == other
 }

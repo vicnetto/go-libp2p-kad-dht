@@ -198,7 +198,7 @@ func (m *Message) GetProviderPeers() []Message_Peer {
 
 type Message_Peer struct {
 	// ID of a given peer.
-	Id byteString `protobuf:"bytes,1,opt,name=id,proto3,customtype=byteString" json:"id"`
+	Id ByteString `protobuf:"bytes,1,opt,name=id,proto3,customtype=ByteString" json:"id"`
 	// multiaddrs for a given peer
 	Addrs [][]byte `protobuf:"bytes,2,rep,name=addrs,proto3" json:"addrs,omitempty"`
 	// used to signal the sender's connection capabilities to the peer
