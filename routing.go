@@ -25,6 +25,8 @@ import (
 	"github.com/multiformats/go-multihash"
 )
 
+var RecordReceivedFrom map[peer.ID]peer.ID
+
 // This file implements the Routing interface for the IpfsDHT struct.
 
 // Basic Put/Get
@@ -538,6 +540,9 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 		return len(ps)
 	}
 
+	var recordReceivedFrom map[peer.ID]peer.ID
+	recordReceivedFrom = make(map[peer.ID]peer.ID)
+
 	provs, err := dht.providerStore.GetProviders(ctx, key)
 	if err != nil {
 		return
@@ -588,6 +593,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 				logger.Debugf("got provider: %s", prov)
 				if psTryAdd(*prov) {
 					logger.Debugf("using provider: %s", prov)
+					recordReceivedFrom[prov.ID] = p
 					select {
 					case peerOut <- *prov:
 						span.AddEvent("found provider", trace.WithAttributes(
@@ -621,6 +627,8 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 			return !findAll && psSize() >= count
 		},
 	)
+
+	RecordReceivedFrom = recordReceivedFrom
 
 	if err == nil && ctx.Err() == nil {
 		dht.refreshRTIfNoShortcut(kb.ConvertKey(string(key)), lookupRes)
