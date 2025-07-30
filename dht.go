@@ -163,6 +163,9 @@ type IpfsDHT struct {
 	// addrFilter is used to filter the addresses we put into the peer store.
 	// Mostly used to filter out localhost and local addresses.
 	addrFilter func([]ma.Multiaddr) []ma.Multiaddr
+
+	// Number of disjoint requests to use
+	disjointRequests int
 }
 
 // Assert that IPFS assumptions about interfaces aren't broken. These aren't a
@@ -251,6 +254,9 @@ func New(ctx context.Context, h host.Host, options ...Option) (*IpfsDHT, error) 
 	if !dht.disableFixLowPeers {
 		dht.runFixLowPeersLoop()
 	}
+
+	// by default it should use three, however value can be changed by using setter
+	dht.disjointRequests = 3
 
 	return dht, nil
 }
@@ -370,6 +376,10 @@ func makeDHT(h host.Host, cfg dhtcfg.Config) (*IpfsDHT, error) {
 	dht.rtFreezeTimeout = rtFreezeTimeout
 
 	return dht, nil
+}
+
+func (dht *IpfsDHT) SetDisjointRequests(number int) {
+	dht.disjointRequests = number
 }
 
 // lookupCheck performs a lookup request to a remote peer.ID, verifying that it is able to

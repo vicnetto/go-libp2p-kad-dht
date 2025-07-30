@@ -627,6 +627,207 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 	}
 }
 
+// FindProvidersAsyncDisjoint is similar to the basic findProvidersAsync, however
+// introducing disjoint requests. It was separated into a different function to not
+// disrupt other programs due to parameter change.
+func (dht *IpfsDHT) FindProvidersAsyncDisjoint(ctx context.Context, key cid.Cid, count int) (ch <-chan peer.AddrInfo) {
+	ctx, end := tracer.FindProvidersAsync(dhtName, ctx, key, count)
+	defer func() { ch = end(ch, nil) }()
+
+	if !dht.enableProviders || !key.Defined() {
+		peerOut := make(chan peer.AddrInfo)
+		close(peerOut)
+		return peerOut
+	}
+
+	peerOut := make(chan peer.AddrInfo)
+	var disjointProviders []chan peer.AddrInfo
+
+	keyMH := key.Hash()
+	targetKadID := kb.ConvertKey(string(keyMH))
+
+	// Obtain seed peers (initial peers), in a rate of k*dht.disjointRequests.
+	initialPeers := dht.routingTable.NearestPeers(targetKadID, dht.bucketSize*dht.disjointRequests)
+	if len(initialPeers) == 0 {
+		routing.PublishQueryEvent(ctx, &routing.QueryEvent{
+			Type:  routing.QueryError,
+			Extra: kb.ErrLookupFailure.Error(),
+		})
+		return
+	}
+
+	seedPeers := make([][]peer.ID, dht.disjointRequests)
+	for i := 0; i < dht.disjointRequests; i++ {
+		seedPeers[i] = make([]peer.ID, 0)
+	}
+
+	var currentRequest int
+	for i, pid := range initialPeers {
+		if currentRequest == dht.disjointRequests {
+			currentRequest = 0
+		}
+
+		seedPeers[i%dht.disjointRequests] = append(seedPeers[i%dht.disjointRequests], pid)
+		currentRequest++
+	}
+
+	var askedOnDisjointRequests sync.Map
+	for i := 0; i < dht.disjointRequests; i++ {
+		providerCh := make(chan peer.AddrInfo)
+		disjointProviders = append(disjointProviders, providerCh)
+
+		fmt.Println("Launching disjoint request", i)
+		logger.Debugw("finding providers", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
+		go dht.findProvidersAsyncRoutineDisjoint(ctx, keyMH, count, providerCh, &askedOnDisjointRequests, seedPeers[i])
+	}
+
+	go func() {
+		for {
+			allClosed := true
+
+			for i := 0; i < len(disjointProviders); i++ {
+				channel := disjointProviders[i]
+
+				select {
+				// case <-ctx.Done():
+				// 	close(channel)
+				// 	disjointProviders[i] = nil
+				case provider, isStillOpen := <-channel:
+					if isStillOpen {
+						allClosed = false
+						fmt.Printf("Channel %d) Returned %s as provider\n", i, provider)
+						peerOut <- provider
+					}
+				default:
+					allClosed = false
+				}
+			}
+
+			if allClosed {
+				fmt.Println("All disjoint requests have been closed")
+				close(peerOut)
+				break
+			}
+		}
+	}()
+
+	return peerOut
+}
+
+func (dht *IpfsDHT) findProvidersAsyncRoutineDisjoint(ctx context.Context, key multihash.Multihash, count int, peerOut chan peer.AddrInfo, askedOnDisjointRequests *sync.Map, seedPeers []peer.ID) {
+	// use a span here because unlike tracer.FindProvidersAsync we know who told us about it and that intresting to log.
+	ctx, span := internal.StartSpan(ctx, "IpfsDHT.FindProvidersAsyncRoutine")
+	defer span.End()
+
+	defer close(peerOut)
+
+	findAll := count == 0
+
+	ps := make(map[peer.ID]peer.AddrInfo)
+	psLock := &sync.Mutex{}
+	psTryAdd := func(p peer.AddrInfo) bool {
+		psLock.Lock()
+		defer psLock.Unlock()
+		pi, ok := ps[p.ID]
+		if (!ok || ((len(pi.Addrs) == 0) && len(p.Addrs) > 0)) && (len(ps) < count || findAll) {
+			ps[p.ID] = p
+			return true
+		}
+		return false
+	}
+	psSize := func() int {
+		psLock.Lock()
+		defer psLock.Unlock()
+		return len(ps)
+	}
+
+	provs, err := dht.providerStore.GetProviders(ctx, key)
+	if err != nil {
+		return
+	}
+	for _, p := range provs {
+		// NOTE: Assuming that this list of peers is unique
+		if psTryAdd(p) {
+			select {
+			case peerOut <- p:
+				span.AddEvent("found provider", trace.WithAttributes(
+					attribute.Stringer("peer", p.ID),
+					attribute.Stringer("from", dht.self),
+				))
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		// If we have enough peers locally, don't bother with remote RPC
+		// TODO: is this a DOS vector?
+		if !findAll && len(ps) >= count {
+			return
+		}
+	}
+
+	lookupRes, err := dht.runLookupWithFollowupDisjoint(ctx, string(key),
+		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
+
+			// For DHT query command
+			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
+				Type: routing.SendingQuery,
+				ID:   p,
+			})
+
+			provs, closest, err := dht.protoMessenger.GetProviders(ctx, p, key)
+			if err != nil {
+				return nil, err
+			}
+
+			logger.Debugf("%d provider entries", len(provs))
+
+			// Add unique providers from request, up to 'count'
+			for _, prov := range provs {
+				fmt.Println(time.Now().Format(time.RFC3339), p.String(), "added", prov.ID.String(), "as provider")
+				dht.maybeAddAddrs(prov.ID, prov.Addrs, peerstore.TempAddrTTL)
+				logger.Debugf("got provider: %s", prov)
+				if psTryAdd(*prov) {
+					logger.Debugf("using provider: %s", prov)
+					select {
+					case peerOut <- *prov:
+						span.AddEvent("found provider", trace.WithAttributes(
+							attribute.Stringer("peer", prov.ID),
+							attribute.Stringer("from", p),
+						))
+					case <-ctx.Done():
+						logger.Debug("context timed out sending more providers")
+						return nil, ctx.Err()
+					}
+				}
+				if !findAll && psSize() >= count {
+					logger.Debugf("got enough providers (%d/%d)", psSize(), count)
+					return nil, nil
+				}
+			}
+
+			// Give closer peers back to the query to be queried
+			logger.Debugf("got closer peers: %d %s", len(closest), closest)
+
+			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
+				Type:      routing.PeerResponse,
+				ID:        p,
+				Responses: closest,
+			})
+
+			return closest, nil
+		},
+		func(*qpeerset.QueryPeerset) bool {
+			return !findAll && psSize() >= count
+		},
+		askedOnDisjointRequests, seedPeers,
+	)
+
+	if err == nil && ctx.Err() == nil {
+		dht.refreshRTIfNoShortcut(kb.ConvertKey(string(key)), lookupRes)
+	}
+}
+
 // FindPeer searches for a peer with given ID.
 func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (pi peer.AddrInfo, err error) {
 	ctx, end := tracer.FindPeer(dhtName, ctx, id)

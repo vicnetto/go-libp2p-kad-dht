@@ -61,6 +61,9 @@ type query struct {
 
 	// stopFn is used to determine if we should stop the WHOLE disjoint query.
 	stopFn stopFn
+
+	// askedOnDisjointRequests lists all nodes already queried
+	askedOnDisjointRequests *sync.Map
 }
 
 type lookupWithFollowupResult struct {
@@ -181,6 +184,109 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn
 	}
 
 	// run the query
+	q.run()
+
+	if ctx.Err() == nil {
+		q.recordValuablePeers()
+	}
+
+	res := q.constructLookupResult(targetKadID)
+	return res, q.queryPeers, nil
+}
+
+func (dht *IpfsDHT) runLookupWithFollowupDisjoint(ctx context.Context, target string, queryFn queryFn, stopFn stopFn, askedOnDisjointRequests *sync.Map, seedPeers []peer.ID) (*lookupWithFollowupResult, error) {
+	ctx, span := internal.StartSpan(ctx, "IpfsDHT.RunLookupWithFollowup", trace.WithAttributes(internal.KeyAsAttribute("Target", target)))
+	defer span.End()
+
+	// run the query
+	lookupRes, qps, err := dht.runQueryDisjoint(ctx, target, queryFn, stopFn, askedOnDisjointRequests, seedPeers)
+	if err != nil {
+		return nil, err
+	}
+
+	// query all of the top K peers we've either Heard about or have outstanding queries we're Waiting on.
+	// This ensures that all of the top K results have been queried which adds to resiliency against churn for query
+	// functions that carry state (e.g. FindProviders and GetValue) as well as establish connections that are needed
+	// by stateless query functions (e.g. GetClosestPeers and therefore Provide and PutValue)
+	queryPeers := make([]peer.ID, 0, len(lookupRes.peers))
+	for i, p := range lookupRes.peers {
+		if state := lookupRes.state[i]; state == qpeerset.PeerHeard || state == qpeerset.PeerWaiting {
+			queryPeers = append(queryPeers, p)
+		}
+	}
+
+	if len(queryPeers) == 0 {
+		return lookupRes, nil
+	}
+
+	// return if the lookup has been externally stopped
+	if ctx.Err() != nil || stopFn(qps) {
+		lookupRes.completed = false
+		return lookupRes, nil
+	}
+
+	doneCh := make(chan struct{}, len(queryPeers))
+	followUpCtx, cancelFollowUp := context.WithCancel(ctx)
+	defer cancelFollowUp()
+	for _, p := range queryPeers {
+		qp := p
+		go func() {
+			_, _ = queryFn(followUpCtx, qp)
+			doneCh <- struct{}{}
+		}()
+	}
+
+	// wait for all queries to complete before returning, aborting ongoing queries if we've been externally stopped
+	followupsCompleted := 0
+processFollowUp:
+	for i := 0; i < len(queryPeers); i++ {
+		select {
+		case <-doneCh:
+			followupsCompleted++
+			if stopFn(qps) {
+				cancelFollowUp()
+				if i < len(queryPeers)-1 {
+					lookupRes.completed = false
+				}
+				break processFollowUp
+			}
+		case <-ctx.Done():
+			lookupRes.completed = false
+			cancelFollowUp()
+			break processFollowUp
+		}
+	}
+
+	if !lookupRes.completed {
+		for i := followupsCompleted; i < len(queryPeers); i++ {
+			<-doneCh
+		}
+	}
+
+	return lookupRes, nil
+}
+
+func (dht *IpfsDHT) runQueryDisjoint(ctx context.Context, target string, queryFn queryFn, stopFn stopFn, askedOnDisjointRequests *sync.Map, seedPeers []peer.ID) (*lookupWithFollowupResult, *qpeerset.QueryPeerset, error) {
+	ctx, span := internal.StartSpan(ctx, "IpfsDHT.RunQuery")
+	defer span.End()
+
+	// pick the K closest peers to the key in our Routing table.
+	targetKadID := kb.ConvertKey(target)
+
+	q := &query{
+		id:                      uuid.New(),
+		key:                     target,
+		ctx:                     ctx,
+		dht:                     dht,
+		queryPeers:              qpeerset.NewQueryPeerset(target),
+		seedPeers:               seedPeers,
+		peerTimes:               make(map[peer.ID]time.Duration),
+		terminated:              false,
+		queryFn:                 queryFn,
+		stopFn:                  stopFn,
+		askedOnDisjointRequests: askedOnDisjointRequests,
+	}
+
 	q.run()
 
 	if ctx.Err() == nil {
@@ -362,8 +468,32 @@ func (q *query) isReadyToTerminate(ctx context.Context, nPeersToQuery int) (bool
 	// The peers we query next should be ones that we have only Heard about.
 	var peersToQuery []peer.ID
 	peers := q.queryPeers.GetClosestInStates(qpeerset.PeerHeard)
+
 	count := 0
 	for _, p := range peers {
+		if q.askedOnDisjointRequests != nil {
+			// For debugging
+			// if cause == q.dht.self {
+			//      fmt.Printf("%d) Asking peer %s for %s because was it is a seedPeer\n", q.id.ID(), p.String(), cidCast)
+			// }
+
+			// In case any of the other disjoint requests added already the node.
+			if _, ok := q.askedOnDisjointRequests.Load(p); ok {
+				// fmt.Printf("%d) ALREADY: %s\n", q.id.ID(), p.String())
+				q.queryPeers.SetState(p, qpeerset.PeerUnreachable)
+				continue
+
+				// For debugging
+				// In case its a seed peer, allow the requests.
+				//} else if cause == q.dht.self {
+				//      fmt.Printf("%d) Asking peer %s for %s because was it is a seedPeer\n", q.id.ID(), p.String(), cidCast)
+			} else {
+				// No other disjoint requests asked for the peer, so we can ask.
+				// fmt.Printf("%d) ON LIST: %s\n", q.id.ID(), p.String())
+				q.askedOnDisjointRequests.Store(p, true)
+			}
+		}
+
 		peersToQuery = append(peersToQuery, p)
 		count++
 		if count == nPeersToQuery {
