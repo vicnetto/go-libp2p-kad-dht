@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -25,7 +26,12 @@ import (
 	"github.com/multiformats/go-multihash"
 )
 
-var RecordReceivedFrom map[peer.ID]peer.ID
+type PRReceived struct {
+	Count   atomic.Int64
+	Records sync.Map
+}
+
+var RecordsReceived PRReceived
 
 // This file implements the Routing interface for the IpfsDHT struct.
 
@@ -540,13 +546,11 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 		return len(ps)
 	}
 
-	var recordReceivedFrom map[peer.ID]peer.ID
-	recordReceivedFrom = make(map[peer.ID]peer.ID)
-
 	provs, err := dht.providerStore.GetProviders(ctx, key)
 	if err != nil {
 		return
 	}
+
 	for _, p := range provs {
 		// NOTE: Assuming that this list of peers is unique
 		if psTryAdd(p) {
@@ -571,6 +575,8 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 		}
 	}
 
+	RecordsReceived = PRReceived{}
+
 	lookupRes, err := dht.runLookupWithFollowup(ctx, string(key),
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 
@@ -585,17 +591,17 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 				return nil, err
 			}
 
-			logger.Debugf("%d provider entries", len(provs))
-
 			// Add unique providers from request, up to 'count'
 			for _, prov := range provs {
 				dht.maybeAddAddrs(prov.ID, prov.Addrs, peerstore.TempAddrTTL)
 				logger.Debugf("got provider: %s", prov)
 				if psTryAdd(*prov) {
 					logger.Debugf("using provider: %s", prov)
-					recordReceivedFrom[prov.ID] = p
 					select {
 					case peerOut <- *prov:
+						RecordsReceived.Count.Add(1)
+						RecordsReceived.Records.Store(prov.ID, p) // Store received record
+
 						span.AddEvent("found provider", trace.WithAttributes(
 							attribute.Stringer("peer", prov.ID),
 							attribute.Stringer("from", p),
@@ -610,6 +616,10 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 					logger.Debugf("got enough providers (%d/%d)", psSize(), count)
 					return nil, nil
 				}
+			}
+
+			if len(provs) > 0 {
+				fmt.Println(time.Now().Format(time.DateTime), p.String(), "added", len(provs), "providers")
 			}
 
 			// Give closer peers back to the query to be queried
@@ -627,8 +637,6 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 			return !findAll && psSize() >= count
 		},
 	)
-
-	RecordReceivedFrom = recordReceivedFrom
 
 	if err == nil && ctx.Err() == nil {
 		dht.refreshRTIfNoShortcut(kb.ConvertKey(string(key)), lookupRes)
