@@ -143,7 +143,7 @@ func (dht *IpfsDHT) optimisticProvide(outerCtx context.Context, keyMH multihash.
 		}
 	}()
 
-	lookupRes, err := dht.runLookupWithFollowup(outerCtx, key, dht.pmGetClosestPeers(key), es.stopFn)
+	lookupRes, err := dht.runLookupWithFollowup(outerCtx, key, dht.PmGetClosestPeers(key), es.stopFn)
 	if err != nil {
 		return err
 	}
@@ -240,7 +240,7 @@ func (os *optimisticState) stopFn(qps *qpeerset.QueryPeerset) bool {
 }
 
 func (os *optimisticState) putProviderRecord(pid peer.ID) {
-	err := os.dht.protoMessenger.PutProviderAddrs(os.putCtx, pid, []byte(os.key), peer.AddrInfo{
+	err := os.dht.ProtoMessenger.PutProviderAddrs(os.putCtx, pid, []byte(os.key), peer.AddrInfo{
 		ID:    os.dht.self,
 		Addrs: os.dht.filterAddrs(os.dht.host.Addrs()),
 	})

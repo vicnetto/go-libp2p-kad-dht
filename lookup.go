@@ -29,7 +29,7 @@ func (dht *IpfsDHT) GetClosestPeers(ctx context.Context, key string) ([]peer.ID,
 	}
 
 	// TODO: I can break the interface! return []peer.ID
-	lookupRes, err := dht.runLookupWithFollowup(ctx, key, dht.pmGetClosestPeers(key), func(*qpeerset.QueryPeerset) bool { return false })
+	lookupRes, err := dht.runLookupWithFollowup(ctx, key, dht.PmGetClosestPeers(key), func(*qpeerset.QueryPeerset) bool { return false })
 	if err != nil {
 		return nil, err
 	}
@@ -58,8 +58,8 @@ func (dht *IpfsDHT) GetClosestPeers(ctx context.Context, key string) ([]peer.ID,
 	return lookupRes.peers, nil
 }
 
-// pmGetClosestPeers is the protocol messenger version of the GetClosestPeer queryFn.
-func (dht *IpfsDHT) pmGetClosestPeers(key string) queryFn {
+// PmGetClosestPeers is the protocol messenger version of the GetClosestPeer QueryFn.
+func (dht *IpfsDHT) PmGetClosestPeers(key string) QueryFn {
 	return func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 		// For DHT query command
 		routing.PublishQueryEvent(ctx, &routing.QueryEvent{
@@ -67,7 +67,7 @@ func (dht *IpfsDHT) pmGetClosestPeers(key string) queryFn {
 			ID:   p,
 		})
 
-		peers, err := dht.protoMessenger.GetClosestPeers(ctx, p, peer.ID(key))
+		peers, err := dht.ProtoMessenger.GetClosestPeers(ctx, p, peer.ID(key))
 		if err != nil {
 			logger.Debugf("error getting closer peers: %s", err)
 			routing.PublishQueryEvent(ctx, &routing.QueryEvent{

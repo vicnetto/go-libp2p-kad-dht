@@ -25,7 +25,7 @@ import (
 var ErrNoPeersQueried = errors.New("failed to query any peers")
 
 type (
-	queryFn func(context.Context, peer.ID) ([]*peer.AddrInfo, error)
+	QueryFn func(context.Context, peer.ID) ([]*peer.AddrInfo, error)
 	stopFn  func(*qpeerset.QueryPeerset) bool
 )
 
@@ -65,7 +65,7 @@ type query struct {
 	waitGroup sync.WaitGroup
 
 	// the function that will be used to query a single peer.
-	queryFn queryFn
+	queryFn QueryFn
 
 	// stopFn is used to determine if we should stop the WHOLE disjoint query.
 	stopFn stopFn
@@ -88,7 +88,7 @@ type lookupWithFollowupResult struct {
 //
 // After the lookup is complete the query function is run (unless stopped) against all of the top K peers from the
 // lookup that have not already been successfully queried.
-func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
+func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, queryFn QueryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
 	ctx, span := internal.StartSpan(ctx, "IpfsDHT.RunLookupWithFollowup", trace.WithAttributes(internal.KeyAsAttribute("Target", target)))
 	defer span.End()
 
@@ -160,7 +160,7 @@ processFollowUp:
 	return lookupRes, nil
 }
 
-func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, *qpeerset.QueryPeerset, error) {
+func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn QueryFn, stopFn stopFn) (*lookupWithFollowupResult, *qpeerset.QueryPeerset, error) {
 	ctx, span := internal.StartSpan(ctx, "IpfsDHT.RunQuery")
 	defer span.End()
 
@@ -415,7 +415,7 @@ func (q *query) queryPeer(ctx context.Context, ch chan<- *queryUpdate, p peer.ID
 	dialCtx, queryCtx := ctx, q.ctx
 
 	// dial the peer
-	if err := q.dht.dialPeer(dialCtx, p); err != nil {
+	if err := q.dht.DialPeer(dialCtx, p); err != nil {
 		// remove the peer if there was a dial failure..but not because of a context cancellation
 		if dialCtx.Err() == nil {
 			q.dht.peerStoppedDHT(p)
@@ -520,7 +520,7 @@ func (q *query) updateState(ctx context.Context, up *queryUpdate) {
 	}
 }
 
-func (dht *IpfsDHT) dialPeer(ctx context.Context, p peer.ID) error {
+func (dht *IpfsDHT) DialPeer(ctx context.Context, p peer.ID) error {
 	ctx, span := internal.StartSpan(ctx, "IpfsDHT.DialPeer", trace.WithAttributes(attribute.String("PeerID", p.String())))
 	defer span.End()
 
