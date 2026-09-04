@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/routing"
+	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
@@ -24,7 +25,6 @@ import (
 	"github.com/libp2p/go-libp2p-kad-dht/qpeerset"
 	kb "github.com/libp2p/go-libp2p-kbucket"
 	record "github.com/libp2p/go-libp2p-record"
-	"github.com/multiformats/go-multihash"
 )
 
 // This file implements the Routing interface for the IpfsDHT struct.
@@ -475,12 +475,22 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 	return ctx.Err()
 }
 
-// SRProvide provides a content using the SR-DHT-Store mitigation. It will firstly search
-// for the k closest nodes to a target content and send records to the nodes contacted within
-// the zone $d_k$. It will then send PRs until reaching k records sent.
+// SRProvide provides content using the SR-DHT-Store approach. It verifies that the node has
+// previously obtained the distance estimate d_k. The node initially searches for the k closest
+// nodes using a regular lookup. Whenever it encounters a node within the d_k region, it
+// immediately sends the record to this node. The lookup terminates when the beta closest nodes
+// have successfully responded and no closer peers can be found.
+//
+// If, during the lookup, the node has not sent records to at least k nodes, it continues sending
+// records by contacting peers outside the d_k region until the total number of records sent
+// reaches k.
 func (dht *IpfsDHT) SRProvide(ctx context.Context, key cid.Cid, brdcst bool) (err error) {
 	ctx, end := tracer.Provide(dhtName, ctx, key, brdcst)
 	defer func() { end(err) }()
+
+	if dht.KDistance == nil {
+		return fmt.Errorf("d_k must be estimated before")
+	}
 
 	if !dht.enableProviders {
 		return routing.ErrNotSupported
@@ -488,7 +498,7 @@ func (dht *IpfsDHT) SRProvide(ctx context.Context, key cid.Cid, brdcst bool) (er
 		return fmt.Errorf("invalid cid: undefined")
 	}
 	keyMH := key.Hash()
-	logger.Debugw("srproviding", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
+	logger.Debugw("srdhtprovide", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
 
 	// add self locally
 	dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
@@ -557,11 +567,11 @@ func (dht *IpfsDHT) SRProvide(ctx context.Context, key cid.Cid, brdcst bool) (er
 			log.Info.Printf("%d) PutPR(%s, %s)\n", provideIndex, key, peerToProvide)
 
 			wg.Add(1)
-			go func(p peer.ID) {
+			go func(p peer.ID, index int) {
 				defer wg.Done()
 				// Try firstly to find the peer.
 				if _, err := dht.FindPeer(ctx, p); err != nil {
-					log.Error.Printf("  %d) Error finding peer %s: %s\n", provideIndex, p.String(), err)
+					log.Error.Printf("  %d) Error finding peer %s: %s\n", index, p.String(), err)
 					return
 				}
 
@@ -572,13 +582,13 @@ func (dht *IpfsDHT) SRProvide(ctx context.Context, key cid.Cid, brdcst bool) (er
 				})
 
 				if err != nil {
-					log.Error.Printf("  %d) Error providing to %s: %s\n", provideIndex, p.String(), err)
+					log.Error.Printf("  %d) Error providing to %s: %s\n", index, p.String(), err)
 					logger.Debug(err)
 				} else { // Successfuly provided
 					provideTo.Add(-1)
-					log.Info.Printf("  %d) Successfully provided to %s (remaining: %d)\n", provideIndex, p.String(), provideTo.Load())
+					log.Info.Printf("  %d) Successfully provided to %s (remaining: %d)\n", index, p.String(), provideTo.Load())
 				}
-			}(peerToProvide)
+			}(peerToProvide, provideIndex)
 		}
 		wg.Wait()
 		if exceededDeadline {

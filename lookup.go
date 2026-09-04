@@ -3,13 +3,14 @@ package dht
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	gocid "github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p-kad-dht/amino"
 	"github.com/libp2p/go-libp2p-kad-dht/sr"
 	kspace "github.com/libp2p/go-libp2p-kbucket/keyspace"
 	mh "github.com/multiformats/go-multihash"
-	"sync"
-	"time"
 
 	"github.com/libp2p/go-libp2p-kad-dht/internal"
 	"github.com/libp2p/go-libp2p-kad-dht/metrics"
@@ -128,10 +129,11 @@ func (dht *IpfsDHT) pmGetClosestPeers(key string) queryFn {
 	}
 }
 
-// GetClosestPeersAndProvideIfWithinDk performs a normal lookup towards the content,
-// however it provides if the contacted node is within the distance $d_k$. The list of
-// closest peers returned contains the closest k peers which did not yet received the
-// provider record.
+// GetClosestPeersAndProvideIfWithinDk performs a normal lookup for the content. If a
+// contacted node is within the distance $d_k$, it sends the record to this node. It
+// returns two lists: one containing the peers that did not receive the record based on
+// their closeness to the content, and another containing the peers to which the record
+// was sent.
 func (dht *IpfsDHT) GetClosestPeersAndProvideIfWithinDk(ctx context.Context, key string) ([]peer.ID, []peer.ID, error) {
 	ctx, span := internal.StartSpan(ctx, "IpfsDHT.GetClosestPeers", trace.WithAttributes(internal.KeyAsAttribute("Key", key)))
 	defer span.End()
@@ -149,6 +151,7 @@ func (dht *IpfsDHT) GetClosestPeersAndProvideIfWithinDk(ctx context.Context, key
 		return nil, nil, err
 	}
 
+	// Print distance + all peers that received the provide
 	// i := 1
 	// fmt.Println("Distance:", ToSciNotation(dht.KDistance.GetAverage(sr.WeightedMean)))
 	// providedTo.Range(func(key, value interface{}) bool {
@@ -157,14 +160,13 @@ func (dht *IpfsDHT) GetClosestPeersAndProvideIfWithinDk(ctx context.Context, key
 	// 	return true
 	// })
 
-	// Get all the peers obtained from the lookup
 	allQueriedPeers := lookupRes.allQueryPeers.GetClosestInStates(qpeerset.PeerHeard, qpeerset.PeerQueried, qpeerset.PeerWaiting)
 	// fmt.Println("Queried:")
 	// for i2, queriedPeer := range allQueriedPeers {
 	// 	fmt.Printf("\t[%d] queried: %v\n", i2, queriedPeer)
 	// }
 
-	// Get the closest k excluding the ones that already received the record
+	// Closest k excluding the ones that already received the record
 	var notProvidedClosest []peer.ID
 	for i := 0; len(notProvidedClosest) < amino.DefaultBucketSize; i++ {
 		if _, ok := providedTo.Load(allQueriedPeers[i]); !ok {
@@ -172,6 +174,7 @@ func (dht *IpfsDHT) GetClosestPeersAndProvideIfWithinDk(ctx context.Context, key
 		}
 	}
 
+	// Print the list of closest nodes that did not received a record
 	// fmt.Println("NotProvidedKClosest:")
 	// for i, notProvidedPeer := range notProvidedClosest {
 	// 	fmt.Printf("\t[%d] queried: %v\n", i, notProvidedPeer)
@@ -232,6 +235,7 @@ func (dht *IpfsDHT) pmGetClosestPeersAndProvideIfWithinDk(key string, providedTo
 		peerMultiHash, _ := mh.FromB58String(p.String())
 		peerKey := kspace.XORKeySpace.Key(peerMultiHash)
 
+		// Count number of provider records sent for debugging
 		provided := 0
 		providedTo.Range(func(key, _ interface{}) bool {
 			provided++
@@ -246,10 +250,7 @@ func (dht *IpfsDHT) pmGetClosestPeersAndProvideIfWithinDk(key string, providedTo
 				ID:    dht.self,
 				Addrs: dht.filterAddrs(dht.host.Addrs()),
 			})
-			if err != nil {
-				// fmt.Println(err)
-				// fmt.Println("Test")
-			} else {
+			if err == nil {
 				providedTo.Store(p, true)
 			}
 		}

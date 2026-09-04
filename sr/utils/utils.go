@@ -2,11 +2,15 @@ package utils
 
 // THIS FILE IS ONLY FOR DEBUGGING PURPOSES
 // The functions available in this file should not be used in a real implementation.
-// This file should be ignored, and would be removed for being implemented to kad-dht.
+// This file should be ignored and will be removed once the functionality is
+// implemented in kad-dht.
 
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"time"
+
 	gocid "github.com/ipfs/go-cid"
 	"github.com/ipfs/kubo/core"
 	"github.com/libp2p/go-libp2p-kad-dht"
@@ -19,8 +23,6 @@ import (
 	"github.com/vicnetto/active-sybil-attack/logger"
 	ipfspeer "github.com/vicnetto/active-sybil-attack/node/peer"
 	"github.com/vicnetto/active-sybil-attack/utils/k-closest-to-file/interact"
-	"math/big"
-	"time"
 )
 
 var log = logger.InitializeLogger()
